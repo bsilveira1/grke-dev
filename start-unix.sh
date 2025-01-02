@@ -45,6 +45,12 @@ if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
   mkdir -p project/backend project/frontend
   git clone "$backend_repo" project/backend
   git clone "$frontend_repo" project/frontend
+
+  if [[ "$include_kafka" == true && -d "scripts" ]]; then
+    echo "Movendo o diretório 'scripts' para dentro de 'project'..."
+    mv scripts project/
+  fi
+
   echo "Processo concluído com sucesso!"
   directory="project"
 elif [[ -n "$backend_repo" ]]; then
@@ -115,6 +121,8 @@ EOF
 fi
 
 if [[ "$include_kafka" == true ]]; then
+  scripts_volume="../scripts:/scripts"
+
   cat >> "$directory/docker-compose.yml" <<EOF
   kafka:
     image: bitnami/kafka:latest
@@ -164,7 +172,7 @@ if [[ "$include_kafka" == true ]]; then
       - KAFKA_CFG_BOOTSTRAP_SERVERS=kafka:9092
     entrypoint: ["/bin/bash", "-c", "sleep 10 && /scripts/create-topics.sh"]
     volumes:
-      - ./scripts:/scripts
+      - $scripts_volume
 EOF
 fi
 
