@@ -55,7 +55,6 @@ if [[ -z "$backend_repo" && -z "$frontend_repo" ]]; then
   show_help
 fi
 
-# Verificar permissões do diretório 'scripts'
 ensure_permissions
 
 if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
@@ -81,7 +80,6 @@ elif [[ -n "$frontend_repo" ]]; then
   directory="frontend"
 fi
 
-# Verificar e copiar o arquivo filebeat.yml
 if [[ "$include_elastic" == true ]]; then
   filebeat_source_path="./scripts/filebeat.yml"
   filebeat_target_path="$directory/scripts/filebeat.yml"

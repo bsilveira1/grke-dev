@@ -9,6 +9,13 @@ filebeat.autodiscover:
           - type: container
             paths:
               - /var/lib/docker/containers/${data.docker.container.id}/*.log
+     - condition:
+          contains:
+            docker.container.name: react-app
+        config:
+          - type: container
+            paths:
+              - /var/lib/docker/containers/${data.docker.container.id}/*.log
 
 setup.template.name: "filebeat-logs"
 setup.template.pattern: "filebeat-logs"
