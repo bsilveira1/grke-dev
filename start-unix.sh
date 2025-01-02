@@ -1,21 +1,33 @@
 #!/bin/bash
 
 function show_help() {
-  echo "Uso: $0 [-b URL_BACKEND] [-f URL_FRONTEND] [-K]"
+  echo "Uso: $0 [-b URL_BACKEND] [-f URL_FRONTEND] [-K] [-E]"
   echo
   echo "  -b URL_BACKEND    Informe a URL do repositório do backend em Go."
   echo "  -f URL_FRONTEND   Informe a URL do repositório do frontend em React."
   echo "  -K                Inclui serviços relacionados ao Kafka no docker-compose."
+  echo "  -E                Inclui a stack do Elasticsearch, Kibana e Filebeat no docker-compose."
   echo
   echo "Você deve informar pelo menos um dos parâmetros (-b ou -f)."
   exit 1
 }
 
+function ensure_permissions() {
+  if [[ -d "scripts" ]]; then
+    echo "Configurando permissões para os arquivos no diretório 'scripts'..."
+    chmod -R u+rwx scripts
+    echo "Permissões configuradas com sucesso."
+  else
+    echo "Aviso: O diretório 'scripts' não foi encontrado. Certifique-se de que ele está no local correto."
+  fi
+}
+
 backend_repo=""
 frontend_repo=""
 include_kafka=false
+include_elastic=false
 
-while getopts "b:f:Kh" opt; do
+while getopts "b:f:KEh" opt; do
   case ${opt} in
     b)
       backend_repo=$OPTARG
@@ -25,6 +37,9 @@ while getopts "b:f:Kh" opt; do
       ;;
     K)
       include_kafka=true
+      ;;
+    E)
+      include_elastic=true
       ;;
     h)
       show_help
@@ -40,14 +55,18 @@ if [[ -z "$backend_repo" && -z "$frontend_repo" ]]; then
   show_help
 fi
 
+# Verificar permissões do diretório 'scripts'
+ensure_permissions
+
 if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
   echo "Clonando ambos os repositórios em 'project'..."
   mkdir -p project/backend project/frontend
   git clone "$backend_repo" project/backend
   git clone "$frontend_repo" project/frontend
 
-  if [[ "$include_kafka" == true && -d "scripts" ]]; then
+  if [[ -d "scripts" ]]; then
     echo "Movendo o diretório 'scripts' para dentro de 'project'..."
+    mv scripts project/
   fi
 
   echo "Processo concluído com sucesso!"
@@ -62,13 +81,36 @@ elif [[ -n "$frontend_repo" ]]; then
   directory="frontend"
 fi
 
-echo "Criando arquivo docker-compose.yml..."
+# Verificar e copiar o arquivo filebeat.yml
+if [[ "$include_elastic" == true ]]; then
+  filebeat_source_path="./scripts/filebeat.yml"
+  filebeat_target_path="$directory/scripts/filebeat.yml"
+  if [[ -f "$filebeat_source_path" ]]; then
+    mkdir -p "$(dirname "$filebeat_target_path")"
+    cp "$filebeat_source_path" "$filebeat_target_path"
+    echo "Arquivo filebeat.yml copiado para $filebeat_target_path."
+  else
+    echo "Erro: O arquivo 'filebeat.yml' não foi encontrado em './scripts'." >&2
+    exit 1
+  fi
+fi
 
+echo "Criando arquivo docker-compose.yml..."
 sleep 3
 
 cat > "$directory/docker-compose.yml" <<EOF
 services:
 EOF
+
+depends_on_elasticsearch=""
+if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
+  depends_on_elasticsearch="      - golang-app
+      - react-app"
+elif [[ -n "$backend_repo" ]]; then
+  depends_on_elasticsearch="      - golang-app"
+elif [[ -n "$frontend_repo" ]]; then
+  depends_on_elasticsearch="      - react-app"
+fi
 
 if [[ -n "$backend_repo" ]]; then
   depends_on_kafka=$( [[ "$include_kafka" == true ]] && echo "      - kafka" || echo "" )
@@ -77,7 +119,7 @@ if [[ -n "$backend_repo" ]]; then
     build:
       context: $( [[ "$directory" == "project" ]] && echo "./backend" || echo "." )
     container_name: golang-app
-    command: ["sh", "-c", "echo 'Esperando o banco de dados estar pronto...' && sleep 10 && go run db/seed.go && go run main.go"]
+    command: ["sh", "-c", "echo 'Esperando o banco de dados estar pronto...' && sleep 20 && go run db/seed.go && go run main.go"]
     ports:
       - "8080:8080"
     volumes:
@@ -172,6 +214,59 @@ if [[ "$include_kafka" == true ]]; then
     entrypoint: ["/bin/bash", "-c", "sleep 10 && /scripts/create-topics.sh"]
     volumes:
       - $scripts_volume
+EOF
+fi
+
+if [[ "$include_elastic" == true ]]; then
+  cat >> "$directory/docker-compose.yml" <<EOF
+  elasticsearch:
+    image: elasticsearch:8.8.1
+    container_name: elasticsearch
+    ports: 
+      - "9200:9200"
+    environment:
+      - ELASTIC_PASSWORD=elastic123
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xmx1g -Xms1g"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f elasticsearch:9200"
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 120
+    depends_on:
+$depends_on_elasticsearch
+
+  kibana:
+    image: kibana:8.8.1
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana
+      - xpack.security.enabled=false
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+  
+  filebeat:
+    image: elastic/filebeat:8.8.1
+    container_name: filebeat
+    user: root
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    volumes:
+      - $( [[ "$directory" == "project" ]] && echo "./scripts/filebeat.yml" || echo "./scripts/filebeat.yml" ):/usr/share/filebeat/filebeat.yml:ro
+      - "/var/lib/docker/containers:/var/lib/docker/containers:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 EOF
 fi
 

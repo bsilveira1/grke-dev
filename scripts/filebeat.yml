@@ -1,0 +1,18 @@
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      templates:
+      - condition:
+          contains:
+            docker.container.name: golang-app
+        config:
+          - type: container
+            paths:
+              - /var/lib/docker/containers/${data.docker.container.id}/*.log
+
+setup.template.name: "filebeat-logs"
+setup.template.pattern: "filebeat-logs"
+
+output.elasticsearch:
+  hosts: http://elasticsearch:9200
+  index: "filebeat-logs"
