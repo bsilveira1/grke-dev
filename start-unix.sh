@@ -48,7 +48,6 @@ if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
 
   if [[ "$include_kafka" == true && -d "scripts" ]]; then
     echo "Movendo o diretório 'scripts' para dentro de 'project'..."
-    mv scripts project/
   fi
 
   echo "Processo concluído com sucesso!"
