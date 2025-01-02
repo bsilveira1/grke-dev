@@ -63,12 +63,6 @@ if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
   git clone "$backend_repo" project/backend
   git clone "$frontend_repo" project/frontend
 
-  if [[ -d "scripts" ]]; then
-    echo "Movendo o diretório 'scripts' para dentro de 'project'..."
-    mv scripts project/
-  fi
-
-  echo "Processo concluído com sucesso!"
   directory="project"
 elif [[ -n "$backend_repo" ]]; then
   echo "Clonando o repositório backend em 'backend'..."
@@ -84,9 +78,7 @@ if [[ "$include_elastic" == true ]]; then
   filebeat_source_path="./scripts/filebeat.yml"
   filebeat_target_path="$directory/scripts/filebeat.yml"
   if [[ -f "$filebeat_source_path" ]]; then
-    mkdir -p "$(dirname "$filebeat_target_path")"
-    cp "$filebeat_source_path" "$filebeat_target_path"
-    echo "Arquivo filebeat.yml copiado para $filebeat_target_path."
+    echo "Filebeat.yml encontrado, referenciando diretamente em $filebeat_target_path."
   else
     echo "Erro: O arquivo 'filebeat.yml' não foi encontrado em './scripts'." >&2
     exit 1
@@ -259,7 +251,7 @@ $depends_on_elasticsearch
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     volumes:
-      - $( [[ "$directory" == "project" ]] && echo "./scripts/filebeat.yml" || echo "./scripts/filebeat.yml" ):/usr/share/filebeat/filebeat.yml:ro
+      - ../scripts/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
       - "/var/lib/docker/containers:/var/lib/docker/containers:ro"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     depends_on:
