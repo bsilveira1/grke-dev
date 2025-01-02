@@ -1,10 +1,11 @@
 #!/bin/bash
 
 function show_help() {
-  echo "Uso: $0 [-b URL_BACKEND] [-f URL_FRONTEND]"
+  echo "Uso: $0 [-b URL_BACKEND] [-f URL_FRONTEND] [-K]"
   echo
   echo "  -b URL_BACKEND    Informe a URL do repositório do backend em Go."
   echo "  -f URL_FRONTEND   Informe a URL do repositório do frontend em React."
+  echo "  -K                Inclui serviços relacionados ao Kafka no docker-compose."
   echo
   echo "Você deve informar pelo menos um dos parâmetros (-b ou -f)."
   exit 1
@@ -12,14 +13,18 @@ function show_help() {
 
 backend_repo=""
 frontend_repo=""
+include_kafka=false
 
-while getopts "b:f:h" opt; do
+while getopts "b:f:Kh" opt; do
   case ${opt} in
     b)
       backend_repo=$OPTARG
       ;;
     f)
       frontend_repo=$OPTARG
+      ;;
+    K)
+      include_kafka=true
       ;;
     h)
       show_help
@@ -61,6 +66,7 @@ services:
 EOF
 
 if [[ -n "$backend_repo" ]]; then
+  depends_on_kafka=$( [[ "$include_kafka" == true ]] && echo "      - kafka" || echo "" )
   cat >> "$directory/docker-compose.yml" <<EOF
   golang-app:
     build:
@@ -73,6 +79,7 @@ if [[ -n "$backend_repo" ]]; then
       - $( [[ "$directory" == "project" ]] && echo "./backend" || echo "." ):/app
     depends_on:
       - mysql
+$depends_on_kafka
   mysql:
     image: mysql:8.1
     container_name: mysql
@@ -104,6 +111,60 @@ if [[ -n "$frontend_repo" ]]; then
     command: sh -c "npm install && npm start"
     stdin_open: true
     tty: true
+EOF
+fi
+
+if [[ "$include_kafka" == true ]]; then
+  cat >> "$directory/docker-compose.yml" <<EOF
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka
+    restart: on-failure
+    ports:
+      - 9092:9092
+    environment:
+      - KAFKA_CFG_BROKER_ID=1
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_NUM_PARTITIONS=3
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    depends_on:
+      - zookeeper
+
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - 2181:2181
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+      - zookeeper
+    ports:
+      - "8081:8080"
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=teste
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+
+  kafka-topics-setup:
+    image: bitnami/kafka:latest
+    container_name: kafka-topics-setup
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_BOOTSTRAP_SERVERS=kafka:9092
+    entrypoint: ["/bin/bash", "-c", "sleep 10 && /scripts/create-topics.sh"]
+    volumes:
+      - ./scripts:/scripts
 EOF
 fi
 
