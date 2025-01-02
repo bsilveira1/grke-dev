@@ -37,7 +37,7 @@ fi
 
 if [[ -n "$backend_repo" && -n "$frontend_repo" ]]; then
   echo "Clonando ambos os repositórios em 'project'..."
-  mkdir -p project
+  mkdir -p project/backend project/frontend
   git clone "$backend_repo" project/backend
   git clone "$frontend_repo" project/frontend
   echo "Processo concluído com sucesso!"
@@ -64,17 +64,15 @@ if [[ -n "$backend_repo" ]]; then
   cat >> "$directory/docker-compose.yml" <<EOF
   golang-app:
     build:
-      context: .
+      context: $( [[ "$directory" == "project" ]] && echo "./backend" || echo "." )
     container_name: golang-app
-    command: ["sh", "-c", "go run db/seed.go && go run main.go"]
+    command: ["sh", "-c", "echo 'Esperando o banco de dados estar pronto...' && sleep 10 && go run db/seed.go && go run main.go"]
     ports:
       - "8080:8080"
     volumes:
-      - .:/app
+      - $( [[ "$directory" == "project" ]] && echo "./backend" || echo "." ):/app
     depends_on:
       - mysql
-EOF
-  cat >> "$directory/docker-compose.yml" <<EOF
   mysql:
     image: mysql:8.1
     container_name: mysql
@@ -86,7 +84,7 @@ EOF
       MYSQL_USER: testuser
       MYSQL_PASSWORD: testpassword
     volumes:
-      - ./db/scripts/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - $( [[ "$directory" == "project" ]] && echo "./backend/db/scripts/mysql-init.sql" || echo "./db/scripts/mysql-init.sql" ):/docker-entrypoint-initdb.d/init.sql
 EOF
 fi
 
@@ -94,13 +92,13 @@ if [[ -n "$frontend_repo" ]]; then
   cat >> "$directory/docker-compose.yml" <<EOF
   react-app:
     build:
-      context: .
+      context: $( [[ "$directory" == "project" ]] && echo "./frontend" || echo "." )
     container_name: react-app
     ports:
       - "3000:3000"
     volumes:
-      - .:/app
-      - ./node_modules:/app/node_modules
+      - $( [[ "$directory" == "project" ]] && echo "./frontend" || echo "." ):/app
+      - $( [[ "$directory" == "project" ]] && echo "./frontend/node_modules" || echo "./node_modules" ):/app/node_modules
     environment:
       - CHOKIDAR_USEPOLLING=true
     command: sh -c "npm install && npm start"
